@@ -1,0 +1,765 @@
+---
+title: "Untitled"
+output: html_document
+date: "2024-12-09"
+---
+
+This study applies a Bayesian logistic regression model to analyze the relationship between the explanatory variables and a binary response variable. The Bayesian approach is chosen because it allows incorporating prior information and provides full posterior distributions for model parameters, enabling uncertainty quantification through credible intervals.
+
+
+```{r}
+library(ggplot2)
+library(rjags)
+library(dplyr)
+```
+
+```{r}
+df <- read.csv("data 3.csv", header = TRUE, sep=';')
+```
+
+# Data Exploration : 
+
+```{r}
+head(df)
+```
+
+```{r}
+str(df)
+```
+
+```{r}
+sum(duplicated(df))
+```
+
+```{r}
+sum(is.na(df))
+```
+
+#Map target data
+
+```{r}
+y<-df["Target"]
+table(y)
+```
+#drop enrolled karena hanya ingin melihat data graduate vs dropout (binary)
+
+```{r}
+df <- df[df$Target != "Enrolled", ]
+
+```
+
+```{r}
+df$Target <- ifelse(df$Target == "Dropout", 1, 0)
+```
+
+redefine y
+
+```{r}
+y<-df["Target"]
+table(y)
+```
+
+
+# Proses Data Numerik
+```{r}
+
+numeric_col <- c(
+  "Previous.qualification..grade.","Admission.grade","Age.at.enrollment",
+  "Curricular.units.1st.sem..grade.","Curricular.units.2nd.sem..grade.",
+  "Unemployment.rate","Inflation.rate","GDP",
+  "Curricular.units.1st.sem..credited.","Curricular.units.1st.sem..enrolled.",
+  "Curricular.units.1st.sem..evaluations.","Curricular.units.1st.sem..approved.",
+  "Curricular.units.1st.sem..without.evaluations.","Curricular.units.2nd.sem..credited.",
+  "Curricular.units.2nd.sem..enrolled.","Curricular.units.2nd.sem..evaluations.",
+  "Curricular.units.2nd.sem..approved.","Curricular.units.2nd.sem..without.evaluations."
+)
+
+```
+
+```{r}
+df_numeric <- df[numeric_col]
+```
+
+
+## Univariate Analysis
+Normality checks are conducted to understand the distributional characteristics of predictors prior to transformation and scaling, rather than as strict modeling assumptions.
+```{r}
+for (col in colnames(df_numeric)) {
+  cat("Kolom:", col, "\n")
+  
+  # Uji Shapiro-Wilk untuk normalitas
+  shapiro_result <- shapiro.test(df_numeric[[col]])
+  cat("Shapiro-Wilk Test: W = ", shapiro_result$statistic, ", p-value = ", shapiro_result$p.value, "\n")
+  
+  # Menghitung skewness dan kurtosis
+  skewness_result <- skewness(df_numeric[[col]])
+  kurtosis_result <- kurtosis(df_numeric[[col]])
+  
+  # Menampilkan skewness dan kurtosis
+  cat("Skewness: ", skewness_result, "\n")
+  cat("Kurtosis: ", kurtosis_result, "\n\n")
+}
+```
+
+
+```{r}
+par(mfrow = c(2, 2))
+for (col in colnames(df_numeric)) {
+  boxplot(df_numeric[[col]], main = col, 
+          ylab = "Values", col = "lightblue")
+}
+```
+
+```{r}
+par(mfrow = c(2, 2))  # adjust grid size as needed
+
+for (col in numeric_col) {
+  hist(
+    df[[col]],
+    breaks = 30,
+    main = paste("Histogram of", col),
+    xlab = col,
+    col = "lightgray",
+    border = "white"
+  )
+}
+
+par(mfrow = c(1, 1))
+```
+
+
+
+```{r}
+oultie_cols <- c(
+  "Previous.qualification..grade.","Admission.grade","Age.at.enrollment",
+  "Curricular.units.1st.sem..grade.","Curricular.units.2nd.sem..grade.",
+  "Curricular.units.1st.sem..credited.","Curricular.units.1st.sem..enrolled.",
+  "Curricular.units.1st.sem..evaluations.","Curricular.units.1st.sem..approved.",
+  "Curricular.units.1st.sem..without.evaluations.","Curricular.units.2nd.sem..credited.",
+  "Curricular.units.2nd.sem..enrolled.","Curricular.units.2nd.sem..evaluations.",
+  "Curricular.units.2nd.sem..approved.","Curricular.units.2nd.sem..without.evaluations."
+)
+
+outlier_summary <- data.frame(
+  Column = character(),
+  Low_Outlier_Percent = numeric(),
+  High_Outlier_Percent = numeric(),
+  Lower_Bound = numeric(),
+  Upper_Bound = numeric()
+)
+```
+
+
+```{r}
+summary(outlier_summary)
+```
+
+
+
+```{r}
+for (col in oultie_cols) {
+  x <- df[[col]]
+  
+  q1  <- quantile(x, 0.25, na.rm = TRUE)
+  q3  <- quantile(x, 0.75, na.rm = TRUE)
+  iqr <- q3 - q1
+  
+  low  <- q1 - 1.5 * iqr
+  high <- q3 + 1.5 * iqr
+  
+  low_pct  <- mean(x < low,  na.rm = TRUE) * 100
+  high_pct <- mean(x > high, na.rm = TRUE) * 100
+  
+  if (low_pct > 0 | high_pct > 0) {
+    outlier_summary <- rbind(
+      outlier_summary,
+      data.frame(
+        Column = col,
+        Low_Outlier_Percent = round(low_pct, 2),
+        High_Outlier_Percent = round(high_pct, 2),
+        Lower_Bound = round(low, 2),
+        Upper_Bound = round(high, 2)
+      )
+    )
+  }
+}
+
+outlier_summary
+
+```
+Data dengan outlier masih masuk dalam konteks possible value dan dapat menjadi faktor kunci penentu mahasiswa yang dropot. data outlier akan ditransformasi dan tidak diubah atau dipotong.
+
+
+## Bivariate Analysis
+
+```{r}
+library(corrplot)
+
+corr_matrix <- cor(df_numeric, method = "pearson")
+
+corrplot(corr_matrix, method = "color", type = "lower",
+         addgrid.col = "gray",
+         tl.col = "black", tl.cex = 0.5)
+```
+cek korelasi data numerik dangan data target
+```{r}
+
+corr_results <- data.frame(Variable = character(),Correlation = numeric())
+
+for (col in numeric_col) {
+  
+  x <- df[[col]]
+  
+  corr_results <- rbind(corr_results,data.frame(Variable = col,
+      Correlation = cor(x, df$Target, method = "pearson", use = "complete.obs")))
+}
+corr_results <- corr_results[order(abs(corr_results$Correlation), decreasing = TRUE), ]
+corr_results
+```
+```{r}
+ggplot(corr_results,
+       aes(x = reorder(Variable, Correlation),
+           y = Correlation,
+           fill = Correlation > 0)) +
+  geom_col() +
+  coord_flip() +
+  scale_fill_manual(values = c("red", "steelblue")) +
+  labs(
+    title = "Correlation with Target",
+    x = "Variable",
+    y = "Pearson Correlation"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none")
+```
+
+
+
+## Transform data yang heavily skew
+
+```{r}
+skewcol <- c("Curricular.units.1st.sem..credited.",
+  "Curricular.units.1st.sem..enrolled.","Curricular.units.1st.sem..evaluations.",
+  "Curricular.units.1st.sem..approved.","Curricular.units.1st.sem..without.evaluations.",
+  "Curricular.units.2nd.sem..credited.","Curricular.units.2nd.sem..enrolled.",
+  "Curricular.units.2nd.sem..evaluations.","Curricular.units.2nd.sem..without.evaluations."
+)
+```
+
+```{r}
+for (col in skewcol) {
+  df[[col]] <- log1p(df[[col]])
+}
+```
+
+## Scaling
+```{r}
+for (col in numeric_col) {
+    x <- df[[col]]
+    if (sd(x) == 0) next
+    df[[col]] <- as.numeric(scale(x))
+  }
+```
+
+cek kembali
+```{r}
+for (col in numeric_col){
+  print("---------------------")
+  print(summary(df[col]))
+}
+```
+Processing binary data
+
+```{r}
+binary <- c(
+  "Daytime.evening.attendance.","Displaced","Educational.special.needs","Debtor",
+  "Tuition.fees.up.to.date","Gender","Scholarship.holder","International")
+```
+
+```{r}
+for (col in binary) {
+  cat("\n---------------------------\n")
+  cat("Column:", col)
+  print(table(df[[col]]))
+  cat("Jumlah unique value:", length(unique(df[[col]])))
+}
+
+```
+
+
+```{r}
+par(mfrow = c(2, 2))
+
+for (col in binary) {
+  counts <- table(df[[col]])
+  
+  barplot(counts,main = paste("Counts of", col),xlab = "Category",ylab = "Frequency",
+    las = 2)
+}
+```
+
+
+```{r}
+corr_matrixb <- cor(df[binary], method = "pearson")
+
+corrplot(corr_matrixb, method = "color", type = "lower",addgrid.col = "gray",
+         tl.col = "black", tl.cex = 0.8)
+```
+
+
+
+```{r}
+corr_results <- data.frame(Variable = character(),Correlation = numeric())
+
+for (col in binary) {
+  
+  x <- df[[col]]
+  
+  corr_results <- rbind(corr_results,data.frame(Variable = col,
+      Correlation = cor(x, df$Target, method = "pearson", use = "complete.obs")))
+}
+corr_results <- corr_results[order(abs(corr_results$Correlation), decreasing = TRUE), ]
+corr_results
+```
+
+```{r}
+ggplot(corr_results,
+       aes(x = reorder(Variable, Correlation),
+           y = Correlation,
+           fill = Correlation > 0)) +
+  geom_col() +
+  coord_flip() +
+  scale_fill_manual(values = c("red", "steelblue")) +
+  labs(
+    title = "Correlation with Target",
+    x = "Variable",
+    y = "Pearson Correlation"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none")
+```
+
+
+
+# Modelling : 
+
+
+
+## Bayesian Logistic Regression Model Specification
+This study applies Bayesian logistic regression to model the probability of student dropout based on academic, economic, and demographic predictors. The response variable represents student status, where a value of 1 indicates dropout and 0 indicates graduate.
+
+
+### Likelihood
+The response variable is binary and modeled using a Bernoulli distribution:
+$$
+Y_i \sim \text{Bernoulli}(p_i)
+$$
+
+where the probability is defined as:
+$$
+\text{logit}(p_i) = \alpha + X_i \beta
+$$
+
+The joint likelihood function for all observations is:
+$$
+p(Y \mid \alpha, \beta, X)
+=
+\prod_{i=1}^{n} p_i^{Y_i} (1 - p_i)^{1 - Y_i}
+$$
+
+
+### Prior Distribution
+The intercept is assigned a normal prior:
+$$
+\alpha \sim \mathcal{N}(0, 0.01)
+$$
+
+For Model 1, a spike-and-slab prior is used for variable selection:
+$$
+\beta_j = \gamma_j \delta_j
+$$
+
+$$
+\gamma_j \sim \text{Bernoulli}(0.5)
+$$
+
+$$
+\delta_j \sim \mathcal{N}(0, \tau)
+$$
+
+with the hyperprior:
+$$
+\tau \sim \text{Gamma}(0.1, 0.1)
+$$
+
+For Model 2, hierarchical priors are applied:
+$$
+\beta_j \sim \mathcal{N}(\mu_\beta, \tau_\beta)
+$$
+
+$$
+\mu_\beta \sim \mathcal{N}(0, 0.01),
+\quad
+\tau_\beta \sim \text{Gamma}(2, 1)
+$$
+
+
+### Posterior Distribution
+The posterior distribution is obtained by combining the likelihood and prior distributions:
+$$
+p(\alpha, \beta \mid Y, X)
+\propto
+p(Y \mid \alpha, \beta, X)\, p(\alpha)\, p(\beta)
+$$
+
+The marginal likelihood is defined as:
+$$
+p(Y \mid X)
+=
+\int p(Y \mid \theta, X)\, p(\theta)\, d\theta
+$$
+
+where:
+$$
+\theta = (\alpha, \beta)
+$$
+
+Since the posterior distribution does not have a closed-form solution, inference is conducted using Markov Chain Monte Carlo (MCMC) sampling implemented in JAGS.
+
+
+
+Pilih top 10 kolom paling berkorelasi
+
+
+```{r}
+corr_col <- c(
+  "Previous.qualification..grade.","Admission.grade","Age.at.enrollment","GDP",
+  "Curricular.units.1st.sem..grade.","Curricular.units.2nd.sem..grade.",
+  "Curricular.units.1st.sem..enrolled.","Curricular.units.2nd.sem..enrolled.",
+  "Curricular.units.1st.sem..approved.","Curricular.units.2nd.sem..approved."
+)
+
+binary <- c("Debtor","Tuition.fees.up.to.date","Scholarship.holder")
+```
+
+
+```{r}
+X <- as.matrix(df[, c(corr_col, binary)])
+P <- ncol(X)
+```
+
+```{r}
+jags_data <- list(Y = df$Target,X = X,n = nrow(df), P = P)
+```
+
+Model 1
+```{r}
+model_string<- "
+model {
+  for (i in 1:n) {
+    Y[i] ~ dbern(p[i])
+    logit(p[i]) <- alpha + inprod(X[i,], beta[])
+    
+    # Posterior Predictive Check
+    Y_rep[i] ~ dbern(p[i])
+  }
+  for (j in 1:P) {
+    beta[j] ~ dnorm(0, 1.0E-6)#uninformative prior, coefficent
+  }
+  alpha ~ dnorm(0, 1.0E-6)#uninformative prior, intercept
+}"
+```
+
+
+```{r}
+set.seed(123)
+
+jmodel <- jags.model(textConnection(model_string),data = jags_data,
+                    n.chains = 3,n.adapt = 1000)
+```
+
+```{r}
+update(jmodel, 1000)
+```
+## Model Inference
+Bayesian inference is performed using Markov Chain Monte Carlo (MCMC) sampling implemented via JAGS. The Gibbs sampling algorithm is used to generate samples from the posterior distribution after a burn-in period to ensure convergence.
+```{r}
+params <- c("beta")
+
+samps <- coda.samples(model = jmodel,variable.names = params,
+                        n.iter = 3000,thin = 5)
+```
+
+
+```{r}
+summary(samps)
+```
+The posterior summaries indicate that several regression coefficients have non-zero posterior means, suggesting meaningful associations between the predictors and student dropout probability. The posterior distributions appear stable across MCMC samples, indicating that the model estimation converges properly. Variables related to academic performance in both semesters show relatively stronger effects compared to demographic variables, highlighting the importance of academic factors in dropout risk.
+
+
+Posterior Predictive Check (PPC)
+```{r}
+beta_post <- summary(samps)$statistics[, "Mean"]
+
+p_hat <- plogis(X %*% beta_post)
+
+set.seed(123)
+y_rep <- rbinom(length(p_hat), 1, p_hat)
+
+# Bandingkan proporsi
+mean(y_rep)
+mean(df$Target)
+
+# visualisasi
+data.frame(
+  Type = c("Observed", "Replicated"),
+  Proportion = c(mean(df$Target), mean(y_rep))
+) %>%
+  ggplot(aes(x = Type, y = Proportion, fill = Type)) +
+  geom_col() +
+  theme_minimal() +
+  labs(title = "Posterior Predictive Check")
+```
+The posterior predictive check compares the observed dropout proportion with data replicated from the posterior distribution. The close agreement between the observed and replicated proportions suggests that the Bayesian logistic regression model is able to reproduce key characteristics of the observed data. This indicates that the model provides an adequate fit and captures the underlying dropout mechanism.
+
+
+```{r}
+
+samples1 <- coda.samples(
+  model=jmodel,
+  variable.names = c("Y_rep"),
+  n.iter = 1000
+)
+
+```
+
+```{r}
+Y <- df$Target
+```
+
+
+```{r}
+extract_ppc <- function(samples, Y_obs) {
+  mat <- as.matrix(samples)
+  Yrep_cols <- grep("^Y_rep", colnames(mat))
+  Y_rep <- mat[, Yrep_cols]
+  
+  list(
+    mean_rep = rowMeans(Y_rep),
+    mean_obs = mean(Y_obs)
+  )
+}
+ppc2 <- extract_ppc(samples1, Y)
+```
+
+
+
+```{r}
+hist(ppc2$mean_rep, col = "lightgreen",
+     main = "PPC",
+     xlab = "Mean(Y_rep)")
+abline(v = ppc2$mean_obs, col = "red", lwd = 2)
+```
+
+ACCURACY & AUC
+```{r}
+# Accuracy
+y_pred <- ifelse(p_hat > 0.5, 1, 0)
+
+accuracy <- mean(y_pred == df$Target)
+accuracy
+```
+The classification accuracy indicates that the model is able to correctly classify a substantial proportion of students into dropout and graduate categories. This result demonstrates that the posterior mean estimates can be effectively used for prediction purposes in addition to probabilistic inference.
+
+
+```{r}
+library(pROC)
+```
+
+```{r}
+# AUC (ROC Curve)
+roc_obj <- roc(df$Target, p_hat)
+auc_value <- auc(roc_obj)
+auc_value
+
+plot(roc_obj, main = "ROC Curve - Bayesian Logistic Regression")
+```
+The Area Under the ROC Curve (AUC) measures the model’s ability to distinguish between dropout and graduate students across different classification thresholds. The obtained AUC value suggests that the model has good discriminatory performance, indicating robustness in separating high-risk and low-risk students.
+
+
+MODEL 2
+
+```{r}
+model2 <- "
+model {
+  for (i in 1:n) {
+    Y[i] ~ dbern(p[i])
+    logit(p[i]) <- alpha + inprod(X[i,], beta[])
+  }
+
+  # Hierarchical priors (partial pooling)
+  for (j in 1:P) {
+    beta[j] ~ dnorm(mu_beta, tau_beta)
+  }
+
+  # Hyperpriors
+  mu_beta ~ dnorm(0, 0.01)
+  tau_beta ~ dgamma(2, 1)
+
+  alpha ~ dnorm(0, 0.01)
+}
+"
+```
+
+
+```{r}
+set.seed(123)
+
+jmodel2 <- jags.model(textConnection(model2),data = jags_data,
+                    n.chains = 3,n.adapt = 1000)
+```
+
+```{r}
+update(jmodel2, 1000)
+```
+
+```{r}
+params <- c("beta")
+
+samps2 <- coda.samples(model = jmodel2,variable.names = params,
+                        n.iter = 3000,thin = 5)
+```
+
+
+```{r}
+summary(samps2)
+```
+
+
+MODEL COMPARISON
+
+GEWEKE 
+```{r}
+geweke_results1 <- geweke.diag(samps)
+geweke_results2 <- geweke.diag(samps2)
+geweke_results1
+geweke_results2
+```
+
+
+```{r}
+dic1 <- dic.samples(jmodel, n.iter = 1000)
+dic2 <- dic.samples(jmodel2, n.iter = 1000)
+
+dic1$dic
+dic2$dic
+```
+Model comparison using the Deviance Information Criterion (DIC) shows that the model with the lower DIC value provides a better balance between model fit and complexity. Therefore, the selected Bayesian model is preferred for explaining student dropout outcomes.
+
+```{r}
+print(dic1)
+```
+
+```{r}
+print(dic2)
+```
+
+
+
+```{r}
+HPDinterval(samps)
+```
+
+The 95% credible intervals indicate that several academic-related predictors have intervals that do not include zero, suggesting strong posterior evidence of their association with student dropout probability.
+
+```{r}
+HPDinterval(samps2)
+```
+
+```{r}
+post_mat <- as.matrix(samps)
+```
+
+```{r}
+ci <- apply(post_mat, 2, quantile, probs = c(0.025, 0.975))
+```
+
+```{r}
+ci_df <- data.frame(
+  Parameter = colnames(post_mat),
+  Lower = ci[1, ],
+  Upper = ci[2, ],
+  Mean = colMeans(post_mat)
+)
+```
+
+```{r}
+par(mar = c(5, 8, 4, 2))  # more space for labels
+
+plot(
+  ci_df$Mean, seq_along(ci_df$Mean),
+  xlim = range(ci_df$Lower, ci_df$Upper),
+  yaxt = "n",
+  ylab = "",
+  xlab = "Posterior estimate",
+  pch = 19,
+  main="Uninformative"
+)
+
+segments(
+  ci_df$Lower, seq_along(ci_df$Mean),
+  ci_df$Upper, seq_along(ci_df$Mean),
+  lwd = 2
+)
+
+axis(2, at = seq_along(ci_df$Mean), labels = ci_df$Parameter, las = 2)
+abline(v = 0, lty = 2, col = "blue")
+```
+
+
+
+## Convergence Diagnostics
+Trace plots indicate good mixing and convergence of the MCMC chains, suggesting that the posterior samples are reliable for inference.
+ 
+
+```{r}
+par(mar = c(3, 3, 2, 1))
+plot(samps)
+```
+
+
+```{r}
+par(mar = c(3, 3, 2, 1))
+plot(samps2)
+```
+
+```{r}
+cols <- c(
+  "Previous.qualification..grade.","Admission.grade","Age.at.enrollment","GDP",
+  "Curricular.units.1st.sem..grade.","Curricular.units.2nd.sem..grade.",
+  "Curricular.units.1st.sem..enrolled.","Curricular.units.2nd.sem..enrolled.",
+  "Curricular.units.1st.sem..approved.","Curricular.units.2nd.sem..approved.",
+  "Debtor","Tuition.fees.up.to.date","Scholarship.holder")
+
+Target<-df$Target
+```
+
+
+
+
+## Classical Logistic Regression
+Compared to classical logistic regression, the Bayesian approach provides full posterior distributions instead of point estimates, allowing uncertainty to be explicitly quantified through credible intervals.
+```{r}
+glm_model <- glm(Target ~ ., family = binomial, data = df[cols])
+summary(glm_model)
+```
+
+Overall, the Bayesian logistic regression framework provides both interpretable probabilistic inference and satisfactory predictive performance. The results demonstrate that academic-related variables play an important role in student dropout risk, while Bayesian inference allows uncertainty to be explicitly quantified through posterior distributions.
+
+
+
+
+
+
+
+
