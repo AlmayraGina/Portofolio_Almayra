@@ -1,0 +1,597 @@
+---
+title: "newvis"
+author: "mayra"
+date: "2025-05-27"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Add Library
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(plotly)
+library(reshape2)
+```
+
+# Import Dataset
+
+```{r}
+data_orii <- read.csv("heart.csv")
+data_orii
+```
+
+# check duplicate row
+
+```{r}
+sum(duplicated(data_orii))
+```
+
+# Make a copy of the dataset
+
+```{r}
+data_cleaner <- data_orii
+```
+
+# checking Missing Value
+
+```{r}
+colSums(is.na(data_cleaner))
+```
+
+# show the structure of the data
+
+```{r}
+str(data_cleaner)
+```
+
+# change category column to factors
+
+```{r}
+#Change category column with char data type to factor data type
+
+data_cleaner$Sex <- factor(data_orii$Sex, levels = c("M", "F"), labels = c("Male", "Female"))
+
+data_cleaner$gender <- as.numeric(data_cleaner$Sex)
+
+#changing data label based on the source
+data_cleaner$ChestPainType <- factor(data_orii$ChestPainType, 
+                             levels = c("ATA", "NAP", "ASY", "TA"), 
+                             labels = c("Typical Angina", "Non-anginal Pain", "Asymptomatic", "Typical Atypical"))
+
+#save encode column
+data_cleaner$bloodSugar <-  data_orii$FastingBS
+
+#change levels 0 to otherwise and 1 to blood sugar > 120 ml/dl (this information are based on the source of the data)
+data_cleaner$FastingBS <- factor(data_orii$FastingBS, levels = c(0, 1), labels = c("Otherwise", "Blood sugar > 120ml/dl"))
+
+#save heart disease column to outcome column
+data_cleaner$outcome <- data_orii$HeartDisease
+
+#change levels 1 to Had Heart Disease and 0 to No Heart Disease
+data_cleaner$HeartDisease <- factor(data_orii$HeartDisease, levels = c(0, 1), labels = c("No Heart disease",  "Had Heart Disease"))
+
+#change levels N tp No and Y to Yes
+data_cleaner$ExerciseAngina <- factor(data_orii$ExerciseAngina, levels = c("N", "Y"), labels = c("No", "Yes"))
+
+#change Resting ECG and ST_Slope to factor
+data_cleaner$RestingECG <- as.factor(data_cleaner$RestingECG)
+data_cleaner$ST_Slope <- as.factor(data_cleaner$ST_Slope)
+
+#rechecking the dataset structure
+str(data_cleaner)
+```
+
+# summary of the dataset
+
+```{r}
+summary(data_cleaner) #checking any zero values
+```
+
+# clean the dataset
+
+```{r}
+#Attributes that has unusual 0 values or under 0 values (Oldpeak, RestingBP, cholesterol)
+data_oldpeak <- data_cleaner %>%
+  filter(Oldpeak < 0) #to check the minus data in data old peak
+
+data_BPnotNol <- data_cleaner %>%
+  filter(RestingBP > 0)
+data_cholestrol <- data_cleaner %>%
+  filter(Cholesterol != 0)
+
+#replace 0 or under 0 values with median value of the data
+
+data_cleaner$RestingBP_T <- ifelse(data_cleaner$RestingBP == 0, 
+                                 mean(data_BPnotNol$RestingBP, na.rm = TRUE), data_cleaner$RestingBP)
+data_cleaner$Oldpeak_T <- ifelse(data_cleaner$Oldpeak < 0, 0, data_cleaner$Oldpeak)
+data_cleaner$Cholesterol_T <- ifelse(data_cleaner$Cholesterol == 0, 
+                                     mean(data_cholestrol$Cholesterol, na.rm = TRUE), 
+                                     data_cleaner$Cholesterol)  
+
+#Remove column that we don't need
+data_cleaner$Oldpeak <- NULL
+data_cleaner$RestingBP <- NULL
+data_cleaner$Cholesterol <- NULL
+
+data_cleaner
+summary(data_cleaner)
+colSums(is.na(data_cleaner))
+```
+
+# make new attribute
+
+```{r}
+#make new attribut for age, cholesterol, oldpeak, restingBP and maxHR
+data_final <- data_cleaner %>% #copy dataset with new attribute (as the finalal dataset)
+  mutate(
+    AgeCategory = case_when(
+      Age < 30 ~ "< 30",
+      Age >= 30 & Age < 45 ~ "30-44",
+      Age >= 45 & Age < 60 ~ "45-59",
+      Age >= 60 & Age < 75 ~ "60-74",
+      Age >= 75 ~ "75 or Older"
+    ),
+    Cholestrol_Cat1 = case_when(
+      Cholesterol_T < 200 ~ "Normal",
+      Cholesterol_T >= 200 & Cholesterol_T < 240 ~ "At Risk",
+      Cholesterol_T >= 240 ~ "High"
+    ),
+    Oldpeak_Cat = case_when(
+      Oldpeak_T >= 0 & Oldpeak_T < 1~ "Healthy Heart",
+      Oldpeak_T >= 1 & Oldpeak_T < 2 ~ "Potential Heart Issue",
+      Oldpeak_T >= 2 ~ "Strong Coronary Heart disease"
+    ),
+    RestingBP_Cat = case_when(
+      RestingBP_T < 120 ~ "Normal",
+      RestingBP_T >= 120 & RestingBP_T < 130 ~ "Pre-Hypertensive",
+      RestingBP_T >= 130 ~ "Hypertension",
+    ),
+    MaxHR_P = 220 - Age,
+    HR_percent = MaxHR / MaxHR_P * 100,
+    MaxHR_Cat = case_when(
+      HR_percent < 60 ~ "Low",
+      HR_percent >= 60 & HR_percent < 100 ~ "Normal",
+      HR_percent >= 100 ~ "High"
+      )
+  )
+
+
+#change the new attribute data type to factor
+data_final <- data_final %>%
+  mutate(
+    RestingBP_Cat = factor(RestingBP_Cat, 
+                             levels = c("Normal", "Pre-Hypertensive", "Hypertension")),
+    Cholestrol_Cat1 = factor(Cholestrol_Cat1,levels = c("Normal", "At Risk", "High")),
+    MaxHR_Cat = factor(MaxHR_Cat, levels = c("Low", "Normal", "High"))
+    )
+
+#Recheck missing value
+colSums(is.na(data_final))
+
+```
+
+# Barchart for worldwide Non Comunicable Disease Death Cause
+
+```{r}
+#Make a new data frame for non communicable disease death rate
+ncD_death <- data.frame(
+  disease = c("Heart Disease","Covid 19", "Diabetes", "Stroke", "Chronic Respiratory Disease"),
+  deaths = c(20.5, 8.00, 6.7, 7, 3.5)
+)
+
+#Sort disease in decreasing order
+ncD_death_sort <- ncD_death[order(ncD_death$deaths, decreasing = TRUE),]
+
+ncD_death_sort
+
+#make the plot
+ggplot(ncD_death_sort, aes(y = reorder(disease, deaths), x = deaths, fill = disease)) +
+              geom_col(position = "dodge", width = 0.6)+
+              geom_text(aes(label = deaths), 
+              hjust = -0.1) +
+              labs(title = "Non-Communicable Disease Death Rate",
+                   x = "Death Rate (in Million)",
+                   y = "Disease") +
+              scale_fill_manual(
+                values = c(
+                  "Heart Disease" = "#f44336",
+                  "Stroke" = "#bdbdbd",
+                  "Covid 19" = "#bdbdbd",
+                  "Diabetes" = "#bdbdbd",
+                  "Chronic Respiratory Disease" = "#bdbdbd"
+                  )
+              ) +
+              theme(
+                panel.background = element_rect(fill = "white"),
+                legend.position = "none"
+                ) +
+  coord_cartesian(clip = "off") 
+```
+
+# Piechart : cholesterol Status Percentage
+
+```{r}
+#make new dataframe that count and filter cholesterol only
+sum_chol<- data_final%>%
+  count(Cholestrol_Cat1) %>%
+  mutate(perc = n/sum(n) * 100)
+
+#change category color
+custom_c= c("Normal"="#FFF89A","Risk" = "#F6BD60","High" = "#FF4500")
+
+#make the plot
+plot_ly(sum_chol,labels = ~Cholestrol_Cat1, values = ~perc, type = 'pie',
+        textinfo = 'label+percent',marker = list(colors = custom_c))%>%
+  layout(
+    title = "cholesterol status diagram",
+    xaxis = list(title = "Cholesterol"),
+    yaxis = list(title = "Persentage", ticksuffix = "%"),
+    legend = list(title = list(text = "Cholesterol Type"))
+  )
+
+```
+
+# Piechart : Percentage of Patient with Heart Disease Status based on High Level cholesterol Population
+
+```{r}
+# Create a summary of heart disease count and percentage among individuals with high cholesterol
+summary_HD <- data_final %>% 
+  filter(Cholestrol_Cat1 == "High")%>%
+  count(HeartDisease) %>%
+  mutate(perc = n/sum(n) * 100)
+
+#make the plos based onn the data summary
+plot_ly(summary_HD, labels = ~HeartDisease, values = ~n, type = 'pie',textinfo = 'label+percent',
+            marker = list(colors = c("No Heart disease" = "#A8DADd", "Had Heart Disease" ="#f44336")))%>%
+      layout(
+        title = "Patient Heart Disease Percentage in High Cholesterol Population",
+        xaxis = list(title = "Heart Disease"),
+        yaxis = list(title = "Persentage", ticksuffix = "%"),
+        legend = list(title = list(text = "Heart Disease"))
+      )
+
+```
+
+# Correlation Map : Heart Disease Factor
+
+```{r}
+#create a dataframe that only constains number
+datas_num<- data_final%>% filter(Cholestrol_Cat1 == "High")
+datas_num <- datas_num[c("Age", "RestingBP_T", "Cholesterol_T","gender", "MaxHR", "Oldpeak_T", "outcome", "bloodSugar")]
+
+datas_num
+
+# Calculate the correlation for all numeric variables
+corr_num <- cor(datas_num)
+
+# Order the variables by their correlation strength with the 'outcome' variable (from highest to lowest)
+ordered <- names(sort(corr_num["outcome",], decreasing = TRUE))
+
+# Reorder the correlation based on the variables most correlated with 'outcome'
+order_corr <- corr_num[ordered, ordered]
+
+ggplot(data = melt(order_corr), aes(Var1, Var2, fill = value)) +
+  geom_tile() +
+  labs(x = "HeartDisease Factors", y = "Heartdisease Factors", fill = "Correlation") +
+  scale_fill_gradient(low = "#ffcccc", high = "#f44336") +
+   theme(
+    axis.text.x = element_text(angle = 20, hjust = 1),
+    panel.background = element_rect(fill = "white")
+  )
+```
+
+# Barchart (for Shiny) : Amount Patient with Cholesterol
+
+```{r}
+#make a plot only for Cholesterol Distribution
+custom_c= c("Normal"="#FFF89A","At Risk" = "#F6BD60","High" = "#FF4500")
+ggplot(data_final, aes(x =Cholestrol_Cat1, fill = Cholestrol_Cat1)) +geom_bar(position = "dodge")+
+  scale_fill_manual(values = custom_c) +
+  labs(
+    title = "Amount of Patient with Cholesterol",
+    x= "cholesterol Category",
+    y = "Amount of Patient",
+    fill = "cholesterol Level"
+  )
+```
+
+# Barchart (For shiny) : Amount of Patient with Heart Attack based on High Level cholesterol
+
+```{r}
+#create a summary based of heart disease and cholesterol count
+hd_clo_data <- data_final %>%
+  count(Cholestrol_Cat1, HeartDisease)%>%
+  mutate(perc = n / sum(n) * 100,Combined = interaction(Cholestrol_Cat1, HeartDisease, sep = " - ")
+  )
+
+customCol <- c(
+  "Normal - Had Heart Disease" = "#969696", "Normal - No Heart disease" = "#bdbdbd",
+  "At Risk - Had Heart Disease" = "#969696", "At Risk - No Heart disease" = "#bdbdbd",
+  "High - Had Heart Disease" = "#f44336", "High - No Heart disease" = "#ffcccc"
+)
+ggplot(hd_clo_data, aes(x =Cholestrol_Cat1, y =n, fill = Combined)) +geom_bar(stat = "identity", position = "dodge")+
+  scale_fill_manual(values = customCol) +
+  labs(
+    title = "Amount of Patient with Heart Disease based on High Level cholesterol",
+    x= "cholesterol Category",
+    y = "Amount of Patient",
+    fill = "cholesterol Level - Heart Disease"
+  )
+```
+
+# Barchart : Percentage of Patient Blood Sugar that Has Heart Disease in High Level cholesterol Population
+
+```{r}
+#make a custom color for each bar in the plot
+CustC <- c(
+  "Otherwise - No Heart disease" = "#d9d9d9", "Blood sugar > 120ml/dl - No Heart disease" = "#ffcccc",
+  "Otherwise - Had Heart Disease" = "#969696","Blood sugar > 120ml/dl - Had Heart Disease" = "#f44336"
+)
+
+#make a summary of heart disease and Fasting BS count among individual with High Cholesterol
+summary_BSGB <- data_final %>%
+  filter(Cholestrol_Cat1=="High")%>%
+  count(HeartDisease, FastingBS)%>%
+  group_by(FastingBS)%>%
+  mutate(perc = round(n / sum(n) * 100),Combined = interaction(FastingBS, HeartDisease, sep = " - ")
+  )
+summary_BSGB
+
+#make a percentage plot based on the summary table
+plot_ly(data = summary_BSGB, x = ~FastingBS,
+        y = ~perc,
+        color = ~Combined,
+        colors=CustC, type = 'bar') %>%
+  layout(
+    title = "Blood Sugar Level divided by Heart disease",
+    xaxis = list(title = "blood sugar level"),
+    yaxis = list(title = "percentage", ticksuffix = "%"),
+    barmode = 'stack',
+    legend = list(title = list(text = "Heart Disease Status - Blood Sugar Level"))
+  )
+```
+
+# Barchart : Percentage of Patient that Has Heart Disease based on Gender in High Level cholesterol Population
+
+```{r}
+# make a custom color for each bar in the plot
+CustC <- c(
+  "Male - No Heart disease" = "#ffcccc", "Male - Had Heart Disease" = "#f44336",
+  "Female - No Heart disease" = "lightgray", "Female - Had Heart Disease"= "#969696" 
+)
+
+#make a summary based of heart disease and sex count among individuals that have high Cholesterol
+sum_gender <- data_final %>%
+  filter(Cholestrol_Cat1=="High")%>%
+  count(HeartDisease, Sex)%>%
+  group_by(Sex)%>%
+  mutate(perc = round(n / sum(n) * 100), Combined = interaction(Sex,HeartDisease, sep = " - ")
+  )
+sum_gender
+
+#make the plot based on the summary table
+plot_ly(data = sum_gender, x = ~Sex, y = ~perc, color = ~Combined, colors=CustC, type = 'bar') %>%
+  layout(
+    title = "Percentage Patient with Heart disease by Gender",
+    xaxis = list(title = "Gender"),
+    yaxis = list(title = "Percentage",ticksuffix = "%"),
+    barmode = 'stack',
+    legend = list(title = list(text = "Gender - Heart Disease Status"))
+  )
+```
+
+# Barchart : Percentage of Patient that Has Heart Disease based on Blood Pressure in High cholesterol Population
+
+```{r}
+# make a custom color for each bar in the plot
+cusColor <- c(
+  "Normal - No Heart disease" = "#d9d9d9", "Pre-Hypertensive - No Heart disease" = "lightgray",
+  "Hypertension - No Heart disease" = "#ffcccc",
+  "Normal - Had Heart Disease" = "#969696","Pre-Hypertensive - Had Heart Disease" = "#969696",
+  "Hypertension - Had Heart Disease" = "#f44336"
+)
+
+#make a summary based of heart disease and Resting BP count among individuals that have high Cholesterol
+bp_HDBP_dataGB <- data_final %>%
+  filter(Cholestrol_Cat1=="High")%>%
+  count(HeartDisease, RestingBP_Cat) %>%
+  group_by(RestingBP_Cat) %>%
+  mutate(perc = n / sum(n) * 100,Combined = interaction(RestingBP_Cat, HeartDisease, sep = " - ")
+  )
+bp_cholBP_dataGB
+
+#make the plot based on the summary table
+plot_ly(data = bp_HDBP_dataGB, x = ~RestingBP_Cat, y = ~perc, 
+        color = ~Combined, colors=cusColor, type = 'bar') %>%
+  layout(
+    title = "Resting blood pressure levels divided by Heart disease status",
+    xaxis = list(title = "Resting blood pressure levels"),
+    yaxis = list(title = "percentage", ticksuffix = "%"),
+    legend = list(title = list(text = "Resting blood pressure level - Heart disease status")),
+    barmode = 'stack'
+  )
+```
+
+# Barchart : Percentage of Patient with Heart Disease based on Age Category in High cholesterol Population.
+
+```{r}
+# make a custom color for each bar in the plot
+custom_colo <- c("<30 Had heart Disease" = "#969696", "No Heart disease < 30"= "#d9d9d9",  
+  "Had Heart Disease 30-44" = "#969696","No Heart disease 30-44"  = "lightgray",
+  "Had Heart Disease 45-59" = "#f44336","No Heart disease 45-59"  = "#ffcccc",
+  "Had Heart Disease 60-74" = "#f44336","No Heart disease 60-74"  = "#ffcccc",   
+  "Had Heart Disease 75 or Older"= "#f44336", "No Heart disease 75 or Older"= "#ffcccc"
+)
+
+# Prepare the data
+bp_agre_data <- data_final %>%
+  filter(Cholestrol_Cat1 == "High") %>%
+  count(AgeCategory, HeartDisease) %>%
+  group_by(AgeCategory) %>%
+  mutate(
+    perc = n / sum(n) * 100,
+    Combined = interaction(HeartDisease, AgeCategory, sep = " "))
+bp_agre_data
+
+#make the plot based on the summary table
+plot_ly(data = bp_agre_data, x = ~AgeCategory, y = ~perc, color = ~Combined, 
+        colors = custom_colo, type = 'bar'
+) %>%
+  layout(
+    title = "Heart Disease Status based on Age in High Cholesterol Population",
+    xaxis = list(title = "Umur"),
+    yaxis = list(title = "percentage", ticksuffix = "%"),
+    legend = list(title = list(text = "Age - Heart Disease Status")),
+    barmode = 'stack'
+  )
+```
+
+# Barchart : Percentage of Heart Disease based on Oldpeak Category in High cholesterol Population
+
+```{r}
+#make a summary based of heart disease and Oldpeak_Cat count among individuals that have high Cholesterol
+sum_OP <- data_final %>%
+  filter(Cholestrol_Cat1=="High")%>%
+  count(HeartDisease, Oldpeak_Cat)%>%
+  group_by(Oldpeak_Cat) %>%
+  mutate(perc = n / sum(n) * 100,Combined = interaction(Oldpeak_Cat, HeartDisease, sep = " - ")
+  )
+sum_OP
+
+# make a custom color for each bar in the plot
+custom_colorscl <- c("Healthy Heart - No Heart disease" = "#d9d9d9", 
+                     "Potential Heart Issue - No Heart disease" = "lightgray", 
+                     "Strong Coronary Heart disease - No Heart disease" = "#ffcccc",
+                     "Healthy Heart - Had Heart Disease" = "#969696", 
+                     "Potential Heart Issue - Had Heart Disease" = "#969696", 
+                     "Strong Coronary Heart disease - Had Heart Disease" = "#f44336")
+
+#make the plot based on the summary table
+plot_ly(data = sum_OP, x = ~Oldpeak_Cat, y = ~perc, color = ~Combined, colors=custom_colorscl,
+        type = 'bar') %>%
+  layout(
+    title = "oldpeak indicator divided by Heart disease status",
+    xaxis = list(title = "oldpeak indicator"),
+    yaxis = list(title = "percentage", ticksuffix = "%"),
+    legend = list(title = list(text = "oldpeak indicator - Heart Disease status")),
+    barmode = 'stack'
+  )
+
+```
+
+# Barchart : Percentage of Heart Disease based on ST_Slope in High cholesterol Population
+
+```{r}
+# make a custom color for each bar in the plot
+customCol<-c("No Heart disease - Down"="lightgray", "No Heart disease - Flat"="#ffcccc", "No Heart disease - Up"="#d9d9d9",
+             "Had Heart Disease - Down"="#969696", "Had Heart Disease - Flat"="#f44336", "Had Heart Disease - Up"= "#969696")
+
+#make a summary based of heart disease and ST_Slope count among individuals that have high Cholesterol
+bp_stslop_data <- data_final %>%
+  filter(Cholestrol_Cat1=="High")%>%
+  count(HeartDisease,ST_Slope) %>%
+  group_by(ST_Slope) %>%
+  mutate(perc = n / sum(n) * 100,Combined = interaction(HeartDisease, ST_Slope, sep = " - "))
+bp_stslop_data
+
+#make the plot based on the summary table
+plot_ly(data = bp_stslop_data, x = ~ST_Slope, y = ~perc, color = ~Combined, colors=customCol, type = 'bar'
+) %>%
+  layout(title = "ST slope divided by heart disease status ",
+         xaxis = list(title = "ST slope"),yaxis = list(title = "percentage", ticksuffix = "%"),
+         legend = list(title = list(text = "ST slope - Heart disease status ")),
+    barmode = 'stack'
+  )
+```
+
+# Barchart : Percentage of Heart Disease based on Type of Chest Pain in High cholesterol Population
+
+```{r}
+# make a custom color for each bar in the plot
+custom_co <- c("No Heart disease - Typical Angina"= "lightgray", 
+"No Heart disease - Non-anginal Pain"= "lightgray", "No Heart disease - Asymptomatic"= "#ffcccc",  
+"No Heart disease - Typical Atypical"= "lightgray",  "Had Heart Disease - Typical Angina"     = "#969696",
+"Had Heart Disease - Non-anginal Pain"   = "#969696",  "Had Heart Disease - Asymptomatic"       = "#f44336",  
+"Had Heart Disease - Typical Atypical"   = "#969696"  
+)
+
+bp_type_data <- data_final %>%
+  filter(Cholestrol_Cat1=="High")%>%
+  count(HeartDisease, ChestPainType) %>%
+  group_by(ChestPainType) %>%
+  mutate(perc = n / sum(n) * 100, Combined = interaction(HeartDisease, ChestPainType, sep = " - "))
+bp_type_data
+
+#make the plot based on the summary table
+plot_ly(data = bp_type_data, x = ~ChestPainType, y = ~perc,color = ~Combined, colors=custom_co, type = 'bar'
+) %>%
+  layout(title = "chest pain type divided by Heart disease status",
+         xaxis = list(title = "chest pain type"),
+         yaxis = list(title = "percentage", ticksuffix = "%"),
+         legend = list(title = list(text = "Heart disease status - types of chest pain")),barmode = 'stack'
+  )
+```
+
+# Barchart : Percentage of Patient with Heart Disease that Has Exercise Angina In High level cholesterol Population
+
+```{r}
+# make a custom color for each bar in the plot
+custom_co <- c(
+  "No - No Heart disease" = "#d9d9d9", "Yes - No Heart disease" = "#ffcccc",
+  "No - Had Heart Disease" = "#969696","Yes - Had Heart Disease" = "#f44336"
+)
+
+#make a summary based of heart disease and exercise angina count among individuals that have high Cholesterol
+sum_HD_Angina <- data_final %>%
+  filter(Cholestrol_Cat1=="High")%>%
+  count(HeartDisease, ExerciseAngina) %>%
+  group_by(ExerciseAngina) %>%
+  mutate(perc = round(n / sum(n) * 100),Combined = interaction(ExerciseAngina, HeartDisease, sep = " - ")
+  )
+sum_HD_Angina
+
+#make the plot based on the summary table
+plot_ly(sum_HD_Angina, x = ~ExerciseAngina,y = ~perc, color = ~Combined, colors=custom_co, type = 'bar') %>%
+   layout(
+    title = "Excersie Angina based on Heart disease status",
+    xaxis = list(title = "Heart disease status"),
+    yaxis = list(title = "percentage", ticksuffix = "%"),
+    legend = list(title = list(text = "Heart Disease Status - Excersise Angina")),
+    barmode = 'stack'
+  )
+
+```
+
+# Barchart : Percentage of Patient with Heart Disease based on Heart Rate Level in High Level cholesterol Population.
+
+```{r}
+#make a summary based of heart disease and MAxHR_Cat count among individuals that have high Cholesterol
+sum_HR <- data_final%>%
+  filter(Cholestrol_Cat1=="High")%>%
+  count(HeartDisease, MaxHR_Cat)%>%
+  group_by(MaxHR_Cat)%>%
+  mutate(perc = round(n / sum(n) * 100),Combined = interaction( MaxHR_Cat,HeartDisease, sep = " - ")
+  )
+sum_HR
+
+# make a custom color for each bar in the plot
+CustC <- c(
+  "High - No Heart disease" = "lightgray", "Normal - No Heart disease" = "lightgray", "Low - No Heart disease" = "#ffcccc",
+  "High - Had Heart Disease" = "#969696", "Normal - Had Heart Disease" = "#969696", "Low - Had Heart Disease" = "#f44336"
+)
+
+#make the plot based on the summary table
+plot_ly(data = sum_HR, x = ~MaxHR_Cat, y = ~perc, color = ~Combined, colors= CustC, type = 'bar') %>%
+  layout(
+    title = "Maximum heart rate divided by Heart disease",
+    xaxis = list(title = "maximum heart rate"),
+    yaxis = list(title = "percentage", ticksuffix="%"),
+    barmode = 'stack',
+    legend = list(title = list(text = "Max Heart Rate - Heart Disease Status"))
+  )
+```
