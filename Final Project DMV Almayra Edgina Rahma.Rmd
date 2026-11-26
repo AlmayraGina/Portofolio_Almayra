@@ -1,0 +1,636 @@
+---
+title: "Data study, how to increase succesful rates in future campaign"
+author: "Almayra Edgina Rahma - 2802460930"
+date: "2025-06-22"
+output: 
+html_document:
+  theme: flatly
+#runtime: shiny
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = FALSE,
+  message = FALSE,
+  warning = FALSE
+  )
+```
+
+
+```{r}
+library(ggplot2)
+library(plotly)
+library(knitr)
+library(dplyr)
+library(shiny)
+library(skimr)
+library(shinythemes)
+library(tidyr)
+library(tidyverse)
+library(corrplot)
+```
+
+## Data preprocessing {.tabset}
+```{r}
+dfori <- read.csv("DataframeD.csv", sep=";",  na.strings=c("", "NA", "N/A"))
+```
+
+### View data and check for missing and duplicated values
+view columns of the data to get a general overview.
+```{r}
+kable(head(dfori), caption = "Preview")
+
+kable(table(dfori$job), caption = "Job")
+kable(table(dfori$marital), caption = "marital")
+kable(table(dfori$education), caption = "education")
+kable(table(dfori$default), caption = "default")
+kable(table(dfori$housing), caption = "house loan")
+kable(table(dfori$loan), caption = "loan")
+kable(table(dfori$contact), caption = "contact")
+kable(table(dfori$month), caption = "month")
+kable(table(dfori$day_of_week), caption = "day")
+kable(table(dfori$poutcome), caption = "previous outcome")
+kable(table(dfori$y), caption = "outcome (y axis)")
+```
+In general, the categorical variables doesn't have inconsistent categories, although a few can be renamed to be clearer and more accurate like category names in 'month' and 'day_of_the_week' column. Missing values in job category can be mutated to be in 'unknown' category 
+
+
+check the datas histogram to get a clear distribution of the numerical variables
+```{r}
+par(mfrow=c(2,3))
+hist(dfori$age, main="age", col="green")
+hist(dfori$duration, main="duration", col ="red")
+hist(dfori$campaign, main="campaign", col="pink")
+hist(dfori$pdays, main="pdays", col="purple")
+hist(dfori$previous, main="previous", col="yellow")
+```
+
+
+Age
+```{r}
+summary(dfori$age)
+```
+
+Duration
+```{r}
+summary(dfori$duration)
+
+```
+Duration variable has a few missing value that needs to be removed
+
+number of contact during campaign
+```{r}
+summary(dfori$campaign)
+
+```
+
+days since last contact
+```{r}
+summary(dfori$pdays)
+
+```
+pdays variable is heavily dominated by naisy data '999' which supposed to indicate 'never been contacted', this data should not be treated as outlier but instead be mutated into categorical data
+
+
+previous number of contact 
+```{r}
+summary(dfori$previous)
+```
+The previous variable is heavily dominated by zeros until the 3rd quartile. however the maximum value is 6. it will be too risky if outliers in this variable are to be removed. If the outliers in this variable are removed, then all values in this variable will all be zero
+
+
+check for duplicated data
+```{r}
+sum(duplicated(dfori))
+```
+since there are no duplicated data, there is no need to remove them
+
+remove missing values
+```{r}
+dat1<-dfori
+dat1$job[is.na(dfori$job)]<-"unknown"
+dat1<-na.omit(dfori)
+sum(is.na(dat1))
+```
+missing values are removed
+
+
+
+```{r}
+datt2<-dat1
+outldat<-c("age", "campaign")
+for(i in outldat){
+  
+  Q1<-quantile(datt2[[i]], 0.25)
+  Q3<-quantile(datt2[[i]], 0.75)
+  IQR=Q3-Q1
+  
+  outbelow<- Q1 - 1.5 *IQR
+  outhigh <- Q3 + 1.5*IQR
+  
+  datt2[[i]][datt2[[i]]<outbelow]<-outbelow
+  datt2[[i]][datt2[[i]]>outhigh]<-outhigh
+}
+```
+
+### Handle Outliers
+
+Using boxplot to check for outliers, then use winsorization method to turn outliers into the maximum IQR value.
+Not every variable would need outlier removal. 'pdays', 'duration', and 'previous' variable have important values that might risk changing the data if outliers are to be removed. therefore, these variables would be mutated into categorical variables. On the other hand, 'age' and 'campaign' variable are cleaned. 
+```{r}
+par(mfrow=c(2,3))
+
+boxplot(dfori$age, main="age", col="green")
+boxplot(dfori$duration, main="duration", col ="red")
+boxplot(dfori$campaign, main="campaign", col="pink")
+boxplot(dfori$pdays, main="pdays", col="purple")
+boxplot(dfori$previous, main="previous", col="yellow")
+
+```
+
+after removal of outlers
+
+```{r}
+par(mfrow=c(1,2))
+boxplot(datt2$age, main="Clean age", col="green")
+boxplot(datt2$campaign, main="Clean campaign", col="pink")
+```
+
+
+```{r}
+dat3<-datt2
+```
+
+```{r}
+dat3$job<-factor(datt2$job, levels = c("admin.", "blue-collar", "entrepreneur", "housemaid",    
+                                   "management", "retired", "self-employed", "services",       
+                                   "student", "technician", "unemployed", "unknown"), 
+              labels = c("admin", "blue-collar", "entrepreneur", "housemaid",    
+                                   "management", "retired", "self-employed", "services",       
+                                   "student", "technician", "unemployed", "unknown"))
+
+dat3$education <- factor(datt2$education, 
+                             levels = c( "illiterate", "basic.4y", "basic.6y", "basic.9y", "high.school", "professional.course",    
+                                         "university.degree", "unknown"), 
+                             labels = c("illiterate", "4 years", "6 years", "9 years", "high school", "professional course",    
+                                         "university degree", "unknown"))
+
+dat3$day_of_week <- factor(datt2$day_of_week, levels = c("mon", "tue", "wed","thu", "fri"), 
+                           labels = c("monday", "tuesday", "wednesday","thursday", "friday"))
+
+dat3$month <- factor(datt2$month, levels = c("mar", "apr", "may", "jun", "jul", 
+                                              "aug", "sep", "oct", "nov", "dec"), 
+                            labels = c("March", "April", "May", "June", "July", 
+                                       "August", "September", "October", "November", "December"))
+
+
+dat3$marital <- as.factor(datt2$marital)
+dat3$default <- as.factor(datt2$default)
+dat3$housing <- as.factor(datt2$housing)
+dat3$loan <- as.factor(datt2$loan)
+dat3$contact <- as.factor(datt2$contact)
+dat3$poutcome <- as.factor(datt2$poutcome)
+dat3$y <- as.factor(datt2$y)
+dat3$age<-as.integer(datt2$age)
+dat3$campaign<-as.integer(datt2$campaign)
+
+```
+
+```{r}
+datt4 <- dat3 %>%
+  mutate(age_group= case_when(age <30 ~ "below 30",age >=30 & age <=50 ~ "between 30 to 50",
+      age >50 ~ "above 50"),
+    recency_level = case_when(pdays == 999 ~ "Never", pdays >= 0 & pdays < 11 ~ "Recent",
+      pdays >= 11 & pdays<30 ~ "Old"),
+    total_count_score = campaign + previous,
+    duration_cat = case_when(duration < 100 ~ "very short",duration >= 100 & duration < 500 ~ "short",
+      duration >= 500 & duration < 1000 ~ "normal",duration >= 1000 & duration <1500~ "long",
+      duration>=1500 ~"very long"))
+
+```
+
+
+```{r}
+datt5 <- datt4 %>%
+  mutate(total_countCat= case_when(total_count_score ==1 ~ "once",
+                                   total_count_score >1 & total_count_score <4 ~ "few times",
+                                   total_count_score >=4 ~ "multiple times"))
+
+```
+
+```{r}
+dat6<-datt5
+dat6$age_group <- as.factor(datt5$age_group)
+dat6$recency_level <- as.factor(datt5$recency_level)
+dat6$duration_cat <- as.factor(datt5$duration_cat)
+dat6$total_countCat <- as.factor(datt5$total_countCat)
+```
+
+```{r}
+clean_data<-dat6
+```
+
+
+```{r}
+dff<-clean_data
+```
+
+### Cleaned data
+
+The values in job, education, moth, day_of_the_week variable are renamed, and all categorical variables are turned into factor data types. New variables made from categorizing numerical data: age and pdays. and a new variable made from calculating the sum of two variable (campaign and previous) is used to create a total contact variable
+
+```{r}
+kable(head(dff), caption="Cleaned data preview")
+```
+
+### Summary statistics and initial exploration
+
+Central tendency and variance
+```{r}
+colnum <- dff %>% select(age, campaign, duration, pdays, previous, total_count_score)
+summtab <- colnum %>% pivot_longer(cols = everything(), names_to = "variable", values_to = "value") %>%
+  group_by(variable) %>%summarise(mean = round(mean(value),2), median = median(value),
+                                  standard_deviation = round(sd(value),2),
+                                  variance = round(var(value),2), IQR = IQR(value),
+                                  minimum = min(value), maximum = max(value))
+```
+
+
+```{r}
+kable(summtab, caption = "summary of numerical variables")
+```
+the output shows that duration and pdays variable has the highest standard deviation value, meaning the values in the data are very spread out. Datas with these issue are better segmented into categories since the widly spread out numbers can lead to valuable information. On the other side, the variable 'campaign', 'previous', and 'total_count_score' has the lowest sd value meaning that the values are generally more close to each other and less spread out.
+
+
+
+summary table - comparing age with multiple categorical variable (job, education, marital)
+```{r}
+summcat <- function(cat){
+  dff %>%
+  group_by(.data[[cat]]) %>%
+    summarise(count = n(),mean = round(mean(age),2),median = median(age),standard_deviation = round(sd(age),2),
+      variance = round(var(age),2),minimum = min(age),maximum = max(age))
+  
+}
+```
+
+
+```{r}
+summjob <- lapply("job", summcat)
+```
+
+```{r}
+kable(summjob, caption = "Job - age")
+```
+The table shows majority of the population works as admin, followed by technician. Housemaid is the most spread out category ranging from ages 23-69. The younger population are most commonly found to be students while the older population are commonly found to be retired
+
+
+```{r}
+summmar <- lapply("marital", summcat)
+```
+
+
+```{r}
+kable(summmar, caption = "marital - age")
+```
+The marital category shows that majority of the population is married with a spread out range of age from 22-69. And a small percentage of the population are divorced with individuals as young as 25
+
+
+```{r}
+summeddu <- lapply("education", summcat)
+```
+
+
+```{r}
+kable(summeddu, caption = "education - age")
+```
+The table shows that people with lower levels of education (illiterate - 4 years) tend to be older than the higher level education categories
+
+
+
+
+```{r}
+customc <- c("no" = "#d9d9d9", "yes" = "green")
+```
+
+## Relationship analysis {.tabset}
+
+### Variable relationships
+ 
+correlation chart of age, duration, and total contacts compared to outcome. from the correlation chart it is visible that duration has the highest correlation with outcome. With a positive value of 0.39, this indicates that higher the duration value equals to higher chances of success in the outcome
+
+```{r}
+dffcorr <- dff %>%mutate(outcome = ifelse(y == "yes", 1, 0))
+corrdat <- dffcorr %>%select(age, duration, total_count_score, outcome)
+cor_matrix <- cor(corrdat, method = "pearson")
+corrplot(cor_matrix, method = "color",type = "upper",addCoef.col = "black",tl.col = "black",
+         col = colorRampPalette(c("#00897b", "white", "#5c6bc0"))(100),
+         title = "How variables correlate to campaign outcome", mar = c(0, 0, 1, 0))
+```
+
+
+
+
+```{r}
+kable(table(dff$contact, dff$y), caption = "contact - outcome")
+```
+people are more likely to subscribe when contacted by cellular rather when contacted by telephone
+
+
+
+```{r}
+kable(table(dff$poutcome, dff$y), caption = "previous outcome - outcome")
+```
+The table shows that people who previously subscribed are more likely to subscribe rather than those who previously did not. And people who have been previously contacted, no matter the outcome, have higher chances of subscribing rather than those who are newly contacted
+
+
+```{r}
+kable(table(dff$month, dff$y), caption = "month of campaign - outcome")
+```
+Based on the table, it is shown that people are more likely to subscribe during march and during months near the end of the year (september-december)
+
+
+### Feature Engineering
+New variables are made to further ease and enhance analysis
+```{r}
+#this code was previously already made during data cleaning
+datt4 <- dat3 %>%
+  mutate(age_group= case_when(age <30 ~ "below 30",age >=30 & age <=50 ~ "between 30 to 50",
+      age >50 ~ "above 50"),
+    recency_level = case_when(pdays == 999 ~ "Never", pdays >= 0 & pdays < 11 ~ "Recent",
+      pdays >= 11 & pdays<30 ~ "Old"),
+    total_count_score = campaign + previous,
+    duration_cat = case_when(duration < 100 ~ "very short",duration >= 100 & duration < 500 ~ "short",
+      duration >= 500 & duration < 1000 ~ "normal",duration >= 1000 & duration <1500~ "long",
+      duration>=1500 ~"very long"))
+
+datt5 <- datt4 %>%
+  mutate(total_countCat= case_when(total_count_score ==1 ~ "once",
+                                   total_count_score >1 & total_count_score <4 ~ "few times",
+                                   total_count_score >=4 ~ "multiple times"))
+
+dat6<-datt5
+dat6$age_group <- as.factor(datt5$age_group)
+dat6$recency_level <- as.factor(datt5$recency_level)
+dat6$duration_cat <- as.factor(datt5$duration_cat)
+dat6$total_countCat <- as.factor(datt5$total_countCat)
+```
+
+
+```{r}
+newcols<-dff%>%select(age_group, recency_level, total_count_score)
+kable(head(newcols), caption = "new variables")
+```
+age group variable is made by categorizing age into 3 different groups (<30, 30-50, >50). 
+Recency level is made by converting pdays numbers into categories (999 = never, >10 = old, <10=recent). 
+total_count_score variable is made by calculating the sum of previous and campaign to get the number of the total times a person is contacted
+
+
+### Interactive visualization of relationships
+
+Comparing 2 categorical variables
+```{r}
+summmarloan <- dff %>%
+  filter(loan != "unknown", housing != "unknown") %>%
+  count(housing, loan) %>%
+  group_by(loan) %>%
+  mutate(perc = n / sum(n) * 100) %>%
+  ungroup()
+plot_ly(data = summmarloan , x = ~loan,
+        y = ~perc,
+        color = ~housing,
+        colors=c("no" = "#d9d9d9", "yes" = "#ec407a"),
+        type = 'bar') %>%
+  layout(
+    title = "loan status based on housing loan status",
+    xaxis = list(title = "loan"),
+    yaxis = list(title = "percentage", ticksuffix = "%"),
+    legend = list(title = list(text = "housing loan"))
+  )
+```
+The chart comparing housing status with loan status shows that people with personal loans are more likely to also have housing loans. And from both bars it is shown that people in general are more likely to have loans
+
+
+
+Comparing 1 numeric and one categorical data
+```{r}
+nounknown<-dff%>%filter(marital!="unknown")
+plot_ly(data = nounknown , x = ~age,
+        color = ~marital,
+        colors=c("single" = "#f8bbd0", "married" = "#ec407a", "divorced"="#a32f2f"),
+        type = 'histogram') %>%
+  layout(
+    title = "marital status spread by age",
+    xaxis = list(title = "age"),
+    yaxis = list(title = "count"),
+    barmode = "stack",
+    legend = list(title = list(text = "marital status"))
+  )
+```
+this histogram shows that people from the younger generation tend to be single whereas the older generation have higher counts of being married or divorced
+
+Multi dimentional chart
+```{r}
+filterYJ2<- dff %>%filter(y=="yes", housing!="unknown", loan!="unknown")
+combL2 <- filterYJ2 %>%mutate(loan_status = paste("Housing:", housing, "& Loan:", loan))
+
+custELYN <- c("Housing: yes & Loan: yes" = "darkred", "Housing: yes & Loan: no" = "#ff4444",
+              "Housing: no & Loan: yes" = "#faa", "Housing: no & Loan: no" = "#d9d9d9")
+
+summELYN <- combL2 %>%
+  count(loan_status, job)%>%group_by(job)%>%
+  mutate(perc = round(n / sum(n) * 100),Combined = interaction(job, loan_status, sep = " - ")
+  )
+
+plot_ly(data = summELYN, 
+        x = ~job, y = ~perc,
+        color=~loan_status,
+        colors=custELYN,
+        type= 'bar')%>%
+  layout(
+    title = "Subscribed individuals divided by occupation and loan status",
+    xaxis = list(title = "occupation"),
+    yaxis = list(title = "percentage", ticksuffix = "%"),
+    barmode='stack'
+  )
+```
+this bar chart shows that individuals who subsribes to a deposit across occupation status either don't have any loans or only have housing loans. It is highly unlikely for individuals who have both personal loans and housing loans subscribe to a deposit
+
+
+## Story telling and recommendations {.tabset}
+
+### Data storytelling
+
+```{r}
+summdayMp <- dff%>%count(poutcome, y) %>%
+  group_by(poutcome) %>%
+  mutate(perc = round(n / sum(n) * 100), Combined = interaction(poutcome, y)
+  )
+
+plot_ly(data = summdayMp,
+        x = ~poutcome,
+        y = ~perc,
+        color = ~y,
+        colors = c("no"="gray", "yes"="darkblue"),
+        type = "bar") %>%
+  layout(
+    title = "Previously subscribed individuals are more likely to subscribe again",
+    xaxis = list(title = "previous outcome"),
+    yaxis = list(title = "Percentage", ticksuffix = "%"),
+    barmode = "stack",
+    legend = list(title = list(text = "Current Subscription status"))
+  )
+```
+
+this bar chart shows that individuals who were previously subscribed are more likely to subscribe again with majority of 63% from all previous subsribers who subscribed again.
+
+
+```{r}
+summdayMp14 <- dff %>%filter(poutcome=="success")%>%count(y, education) %>%
+  group_by(education) %>%
+  mutate(perc = round(n / sum(n) * 100), Combined = interaction(education, y, sep = " - ")
+  )
+
+plot_ly(data = summdayMp14,
+        x = ~education,
+        y = ~perc,
+        color = ~y,
+        colors = c("no"="gray", "yes"="darkblue"),
+        type = "bar") %>%
+  layout(
+    title = "Previous subscribers who subscribed again based on education level",
+    xaxis = list(title = "education"),
+    yaxis = list(title = "Percentage", ticksuffix = "%"),
+    barmode = "stack",
+    legend = list(title = list(text = "Subscription status"))
+  )
+```
+From the bar chart above, it is presented that individuals with university level education have the highest percentage of subscribing again. 
+
+
+
+```{r}
+summdayMp2 <- dff %>%filter(poutcome=="success")%>%count(y, job) %>%
+  group_by(job) %>%
+  mutate(perc = round(n / sum(n) * 100), Combined = interaction(job, y, sep = " - ")
+  )
+
+plot_ly(data = summdayMp2,
+        x = ~job,
+        y = ~perc,
+        color = ~y,
+        colors = c("no"="gray", "yes"="darkblue"),
+        type = "bar") %>%
+  layout(
+    title = "Previous subscribers who subscribed again based on occupation",
+    xaxis = list(title = "occupation"),
+    yaxis = list(title = "Percentage", ticksuffix = "%"),
+    barmode = "stack",
+    legend = list(title = list(text = "Subscription status"))
+  )
+```
+This bar chart shows that individuals who are occupied as manager have the highest percentages of subscribing again
+
+
+
+
+
+```{r}
+dff<-dff %>%
+  mutate(duration_cat = factor(duration_cat,
+                               levels = c("very short", "short", "normal", "long", "very long")))
+
+summDur <- dff %>%
+  count(y, duration_cat)%>%group_by(duration_cat)%>%
+  mutate(perc = round(n / sum(n) * 100),Combined = interaction(duration_cat, y, sep = " - ")
+  )
+plot_ly(data = summDur , x = ~duration_cat,
+        y = ~perc,
+        color = ~y,
+        colors=c("no"="gray", "yes"="darkgreen"),
+        type = 'bar') %>%
+  layout(
+    title = "People with higher contact duration have higher chances of subscribing",
+    xaxis = list(title = "Duration"),
+    yaxis = list(title = "percentage", ticksuffix = "%"),
+    barmode = 'stack',
+    legend = list(title = list(text = "subscription status"))
+  )
+```
+Based on the bar chart, it is shown that the higher the contact duration, then the higher the cances of successful outcome
+
+```{r}
+plot_ly(data = dff , x = ~duration,
+        color = ~y,
+        colors=c("no"="gray", "yes"="darkgreen"),
+        type = 'histogram') %>%
+  layout(
+    title = "Subscription status based on duration",
+    xaxis = list(title = "total contacts"),
+    yaxis = list(title = "count"),
+    barmode = "overlay",
+    legend = list(title = list(text = "subscription status"))
+  )
+```
+The histogram shows a clear shift of dominance when duration is higher than 400 seconds. Contacts with duration higher than 400 seconds have dominantly more successful outcome
+
+```{r}
+dfloanh<-dff %>%
+  mutate(loan = factor(loan,levels = c("yes", "no", "unknown")))%>%
+  mutate(housing = factor(housing, levels = c("yes", "no", "unknown")))
+
+heatdata <- dfloanh %>%filter(loan!="unknown"|housing!="unknown")%>%
+  group_by(housing, loan) %>%summarise(average_duration=mean(duration))
+
+plot_ly(heatdata, x = ~housing, y = ~loan, z = ~average_duration,
+        type = "heatmap", colorscale = "Greens") %>%
+  layout(
+    title = "Individuals with loans tend to have a lower average contact duration",
+    xaxis = list(title = "personal loan"),
+    yaxis = list(title = "housing loan")
+  )
+
+```
+This heatmap shows that individuals with personal loans and housing loans have a very short contact duration
+
+
+```{r}
+apapa<-dff %>%
+  mutate(total_countCat = factor(total_countCat, levels = c("once", "few times", "multiple times")))
+
+
+
+heatdata <- apapa %>%
+  group_by(total_countCat, recency_level)%>%summarise(average_duration=mean(duration))
+
+plot_ly(heatdata, x = ~total_countCat, y = ~recency_level, z = ~average_duration,
+        type = "heatmap", colorscale = "Greens") %>%
+  layout(
+    title = "Newly contacted and less contacted individuals have lower contact durations",
+    xaxis = list(title = "Total contact"),
+    yaxis = list(title = "Days since last contact")
+  )
+```
+This heatmap shows that individuals who previously have never been contacted have shorter contact duration
+
+
+### Interpretation
+
+Looking from the previous outcome, most current subscribers are individuals who have subscribed on the previous campaign. University graduates and managers have the highest likelihood to subscribe to another campaign. Based on contact duration, contacts with duration higher than 400 seconds have a larger chance to achieve successful outcome. Individuals with personal loans tend to have shorter contact duration. And individuals who have never been contacted previously aswell as those who are contacted multiple times have much shorter contact durations.
+   
+
+
+### Business Recommendation
+
+1. Look for customers who are university graduates or those who work in management. These individuals are the most likely to continue subscribing for the current and future deposits. 
+
+2. Avoid contacting customers with personal loans, they tend to have very short contact duration wich leads to smaller chance of subscription. Also keep track of previously contacted individuals since new customers have shorter contact duration, although avoid calling a customer too many times during a campaign since more frequently contacted customer leads to shorter contact duration
+
+
+## Video link {.tabset}
+
+### YouTube link
+https://youtu.be/yQ55uoyE_m4
+
+### Gdrive link
+https://drive.google.com/file/d/1tnTQktrWp5ywHvpUe2redx_RJ7wyMrVQ/view?usp=sharing
